@@ -1,0 +1,296 @@
+import discord
+from discord.ext import commands, tasks
+import aiohttp
+import asyncio
+import random
+import string
+import os
+from typing import Set
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
+
+# Bot configuration
+intents = discord.Intents.default()
+intents.message_content = True
+bot = commands.Bot(command_prefix='!', intents=intents, help_command=None)
+
+# Configuration
+CHANNEL_ID = int(os.getenv('THREE_LETTER_CHANNEL_ID', 0))
+
+# Track checked usernames
+checked_usernames: Set[str] = set()
+
+# Statistics
+stats = {
+    'total_checked': 0,
+    'available_found': 0,
+    'rate_limited_count': 0
+}
+
+# Rate limit tracking
+rate_limit_until = 0
+
+class UsernameChecker:
+    """Check if a Discord username is available"""
+    
+    def __init__(self):
+        self.session = None
+    
+    async def init_session(self):
+        if self.session and not self.session.closed:
+            await self.session.close()
+        self.session = aiohttp.ClientSession()
+        print("✅ Session initialized")
+    
+    async def close_session(self):
+        if self.session and not self.session.closed:
+            await self.session.close()
+    
+    async def ensure_session(self):
+        if not self.session or self.session.closed:
+            await self.init_session()
+    
+    async def check_username(self, username: str) -> bool:
+        global rate_limit_until
+        
+        import time
+        if time.time() < rate_limit_until:
+            remaining = int(rate_limit_until - time.time())
+            if remaining > 0 and remaining % 60 == 0:
+                print(f"⏳ Rate limited for {remaining} more seconds...")
+            return False
+        
+        try:
+            await self.ensure_session()
+            
+            url = "https://discord.com/api/v9/unique-username/username-attempt-unauthed"
+            payload = {"username": username}
+            headers = {
+                "Content-Type": "application/json",
+                "User-Agent": "Mozilla/5.0"
+            }
+            
+            async with self.session.post(url, json=payload, headers=headers) as response:
+                stats['total_checked'] += 1
+                
+                if response.status == 200:
+                    data = await response.json()
+                    is_available = not data.get("taken", True)
+                    
+                    if is_available:
+                        stats['available_found'] += 1
+                    
+                    return is_available
+                    
+                elif response.status == 429:
+                    stats['rate_limited_count'] += 1
+                    retry_after = response.headers.get('Retry-After', '60')
+                    
+                    try:
+                        wait_time = int(retry_after)
+                    except:
+                        wait_time = 60
+                    
+                    rate_limit_until = time.time() + wait_time
+                    print(f"⚠️ RATE LIMITED! Pausing for {wait_time}s ({wait_time//60}m)")
+                    return False
+                else:
+                    return False
+                    
+        except Exception as e:
+            print(f"❌ Error: {e}")
+            if "Session is closed" in str(e):
+                await self.init_session()
+            return False
+        
+        await asyncio.sleep(5)
+
+checker = UsernameChecker()
+
+def generate_three_letter() -> str:
+    """Generate completely random 3-character username"""
+    chars = string.ascii_lowercase + string.digits
+    return ''.join(random.choices(chars, k=3))
+
+@bot.event
+async def on_ready():
+    print(f'🤖 3-LETTER BOT: {bot.user} connected!')
+    print(f'📊 Bot is in {len(bot.guilds)} server(s)')
+    
+    await checker.init_session()
+    
+    print(f"\n⚙️ Channel: {CHANNEL_ID if CHANNEL_ID != 0 else 'Not set'}")
+    print("🎯 Mode: Pure random 3-letter combinations (a-z, 0-9)")
+    print("⏱️ Speed: 1 check every 3 minutes (180 seconds)")
+    print("\n💡 Commands: !setchannel3 <id>, !start3, !stop3, !status3\n")
+    
+    if CHANNEL_ID != 0 and not check_usernames.is_running():
+        check_usernames.start()
+        print("✅ Auto-started checker")
+
+@tasks.loop(seconds=180)
+async def check_usernames():
+    """Check 3-letter combinations"""
+    if CHANNEL_ID == 0:
+        return
+    
+    channel = bot.get_channel(CHANNEL_ID)
+    if not channel:
+        return
+    
+    username = generate_three_letter()
+    
+    if username not in checked_usernames:
+        checked_usernames.add(username)
+        is_available = await checker.check_username(username)
+        
+        if is_available:
+            await channel.send(f"Yo **{username}** is valid who want ?")
+            print(f"✅ Found: {username}")
+
+@bot.command(name='start3')
+@commands.has_permissions(administrator=True)
+async def start_checker(ctx):
+    """Start checking 3-letter usernames"""
+    if CHANNEL_ID == 0:
+        await ctx.send("❌ Set channel first: `!setchannel3 <channel_id>`")
+        return
+    
+    if not check_usernames.is_running():
+        check_usernames.start()
+        await ctx.send("✅ Started 3-letter checker!")
+    else:
+        await ctx.send("⚠️ Already running!")
+
+@bot.command(name='stop3')
+@commands.has_permissions(administrator=True)
+async def stop_checker(ctx):
+    """Stop checking"""
+    if check_usernames.is_running():
+        check_usernames.cancel()
+        await ctx.send("⛔ Stopped 3-letter checker")
+    else:
+        await ctx.send("⚠️ Not running")
+
+@bot.command(name='setchannel3')
+@commands.has_permissions(administrator=True)
+async def set_channel(ctx, channel_id: int):
+    """Set the output channel"""
+    global CHANNEL_ID
+    CHANNEL_ID = channel_id
+    channel = bot.get_channel(channel_id)
+    if channel:
+        await ctx.send(f"✅ Set 3-letter channel to {channel.mention}")
+    else:
+        await ctx.send(f"⚠️ Set 3-letter channel to {channel_id}")
+
+@bot.command(name='check3')
+async def check_manual(ctx, username: str):
+    """Manually check a username"""
+    username = username.lower().strip()
+    
+    if len(username) != 3:
+        await ctx.send("❌ Username must be exactly 3 characters!")
+        return
+    
+    await ctx.send(f"🔍 Checking **{username}**...")
+    is_available = await checker.check_username(username)
+    
+    if is_available:
+        await ctx.send(f"✅ **{username}** is available!")
+    else:
+        await ctx.send(f"❌ **{username}** is taken!")
+
+@bot.command(name='status3')
+async def status(ctx):
+    """Check bot status"""
+    import time
+    
+    checker_status = '🟢 Running' if check_usernames.is_running() else '🔴 Stopped'
+    channel_display = f"<#{CHANNEL_ID}>" if CHANNEL_ID != 0 else "Not set"
+    
+    rate_limit_status = "✅ Not rate limited"
+    if time.time() < rate_limit_until:
+        remaining = int(rate_limit_until - time.time())
+        rate_limit_status = f"⚠️ Rate limited for {remaining}s ({remaining//60}m)"
+    
+    embed = discord.Embed(title="🤖 3-Letter Bot Status", color=discord.Color.blue())
+    
+    embed.add_field(
+        name="📊 Checker",
+        value=f"Status: {checker_status}",
+        inline=False
+    )
+    
+    embed.add_field(
+        name="📺 Channel",
+        value=channel_display,
+        inline=False
+    )
+    
+    embed.add_field(
+        name="📈 Statistics",
+        value=f"Total Checked: {stats['total_checked']:,}\n"
+              f"Available Found: {stats['available_found']}\n"
+              f"Rate Limits Hit: {stats['rate_limited_count']}",
+        inline=False
+    )
+    
+    embed.add_field(
+        name="⚡ Rate Limit",
+        value=rate_limit_status,
+        inline=False
+    )
+    
+    embed.add_field(
+        name="💾 Cache",
+        value=f"Checked: {len(checked_usernames):,}",
+        inline=False
+    )
+    
+    await ctx.send(embed=embed)
+
+@bot.command(name='help3')
+async def help_command(ctx):
+    """Show help"""
+    embed = discord.Embed(
+        title="🤖 3-Letter Username Bot",
+        description="Finds available 3-letter Discord usernames\nPure random generation (a-z, 0-9)",
+        color=discord.Color.green()
+    )
+    
+    embed.add_field(
+        name="Commands",
+        value="`!setchannel3 <id>` - Set output channel\n"
+              "`!start3` - Start checking\n"
+              "`!stop3` - Stop checking\n"
+              "`!check3 <username>` - Manual check\n"
+              "`!status3` - View stats\n"
+              "`!help3` - This message",
+        inline=False
+    )
+    
+    await ctx.send(embed=embed)
+
+@bot.event
+async def on_command_error(ctx, error):
+    if isinstance(error, commands.MissingPermissions):
+        await ctx.send("❌ Need admin permissions!")
+    elif isinstance(error, commands.MissingRequiredArgument):
+        await ctx.send(f"❌ Missing argument! Use `!help`")
+
+@bot.event
+async def on_disconnect():
+    await checker.close_session()
+
+if __name__ == "__main__":
+    TOKEN = os.getenv('BOT_TOKEN_3LETTER')
+    
+    if not TOKEN:
+        print("❌ ERROR: Set BOT_TOKEN_3LETTER environment variable")
+        print("Or edit this file and put your token directly in bot.run('your-token')")
+    else:
+        print("🚀 Starting 3-Letter Username Bot...\n")
+        bot.run(TOKEN)
