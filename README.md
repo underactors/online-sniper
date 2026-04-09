@@ -1,4 +1,4 @@
-# ⚡ Online Sniper
+# Online Sniper
 
 Fast online username sniper for monitoring and claiming usernames the
 moment they become available.
@@ -7,7 +7,7 @@ Built by **underactors**.
 
 ------------------------------------------------------------------------
 
-## 🚀 Overview
+## Overview
 
 Online Sniper continuously monitors target usernames and instantly
 attempts to claim them the moment they become available.
@@ -24,15 +24,15 @@ It is designed for:
 
 ------------------------------------------------------------------------
 
-## ✨ Features
+## Features
 
--   ⚡ Real‑time username monitoring\
--   🎯 Automatic claim attempts\
--   📊 Web dashboard to manage targets\
--   🧠 Fast request handling\
--   🔐 Session and database support\
--   🧾 Logging for attempts and results\
--   🎨 Modern UI
+-    Real‑time username monitoring\
+-    Automatic claim attempts\
+-    Web dashboard to manage targets\
+-    Fast request handling\
+-    Session and database support\
+-    Logging for attempts and results\
+-    Modern UI
 
 ------------------------------------------------------------------------
 
@@ -51,7 +51,7 @@ It is designed for:
 
 ------------------------------------------------------------------------
 
-## 📦 Installation
+##  Installation
 
 Clone the repository:
 
@@ -68,7 +68,7 @@ npm install
 
 ------------------------------------------------------------------------
 
-## 🧪 Development
+## Development
 
 Run the development environment:
 
@@ -115,7 +115,7 @@ Depending on your setup, additional configuration may be required.
 
 ------------------------------------------------------------------------
 
-## 📌 Notes
+##  Notes
 
 This project is provided for **educational purposes**.
 
@@ -124,7 +124,7 @@ running automated tools.
 
 ------------------------------------------------------------------------
 
-## 👤 Author
+##  Author
 
 **underactors**
 
